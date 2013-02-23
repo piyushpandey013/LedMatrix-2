@@ -1,0 +1,211 @@
+//
+//
+// Written by Peter Y Lin, a.k.a MJKZZ
+//
+// Do whatever you want to do with this code but use this code at your own risk
+//
+// The remote is available at my ebay store 
+//
+// http://cgi.ebay.com/ws/eBayISAPI.dll?ViewItem&item=390545991483&ssPageName=STRK:MESE:IT
+//
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include "LedMatrix.h"
+
+#define TICK_IR_BREAK  	5000
+#define TICK_IR_ONE_MIN  	400
+#define TICK_IR_ONE_MAX  	600
+
+#define  MAX_IR_PULSE		24
+#define MAX_IR_DATA  		8
+#define MAX_IR_REPEAT  	1
+#define  PIN_IR				2
+
+#define IR_CODE_UP  		0xC500
+#define  IR_CODE_DOWN		0xC480
+#define IR_CODE_LEFT  	0xC560
+#define IR_CODE_RIGHT  	0xC460
+#define IR_CODE_UPLEFT  	0xC562
+#define IR_CODE_UPRIGHT  	0xC462
+#define IR_CODE_DOWNLEFT  0xC566
+#define  IR_CODE_DOWNRIGHT	0xC466
+#define IR_CODE_UPARROW  	0xC590
+#define IR_CODE_DOWNARROW  0xC4D0
+#define IR_CODE_LEFTARROW  0xC430
+#define IR_CODE_RIGHTARROW  0xC420
+
+volatile unsigned int  	g_tkPulse	= 0;
+volatile unsigned int  	g_ctPulse	= 0;
+volatile unsigned int  	g_arPulse[MAX_IR_PULSE];
+volatile unsigned int  	g_irCode	= 0;
+volatile unsigned int  	g_irTemp	= 0;
+volatile unsigned int  	g_ctCode	= 0;
+
+LedMatrix  				ledDisplay	= LedMatrix(5, 6, 7, 16, 16);
+
+//
+// This is a bitmap for a sprite
+// The first two bytes specify width and height of
+// sprite and the rest are bitmaps for sprite
+//
+byte g_sprite[6] = 
+{
+  0x03,		// width
+  0x04,		// height
+  0b10110000, 
+  0b01001000, 
+  0b01000100,
+  0b10100010,
+};
+
+volatile unsigned char  	g_x		= 0;
+volatile unsigned char  	g_y		= 0;
+
+void isr_ir()
+{
+  g_tkPulse	= TCNT1;
+  TCNT1		= 0;
+
+  if (g_tkPulse > TICK_IR_BREAK)
+  {		
+  	g_ctPulse = 0;
+  }
+  else if (g_ctPulse < MAX_IR_PULSE)
+  {
+  	g_arPulse[g_ctPulse] = g_tkPulse;
+  	g_ctPulse++;
+
+  	if (g_ctPulse == 16)
+  	{
+  		g_irTemp = 0;
+  		for(int i=0; i<g_ctPulse; i++)
+  		{
+  			if (g_arPulse[i] > TICK_IR_ONE_MIN && g_arPulse[i] < TICK_IR_ONE_MAX)
+  			{
+  				g_irTemp |= 1;
+  			}
+  			g_irTemp = g_irTemp << 1;
+  		}
+
+  		if (g_irTemp == g_irCode)
+  		{
+  			if (g_ctCode < MAX_IR_REPEAT)
+  			{
+  				g_ctCode++;
+  			}
+  		}
+  		else
+  		{
+  			g_ctCode = 1;
+  		}
+  		g_irCode = g_irTemp;
+  	}
+  }
+}
+
+void setup()
+{
+  Serial.begin(115200);
+
+  TCCR1A = 0b00000000;
+  TCCR1B = 0b00000011;    // Clk*64 = 4uS
+  TCCR1C = 0b00000000;
+
+  pinMode(PIN_IR, INPUT);
+  attachInterrupt(0, isr_ir, FALLING);
+
+  ledDisplay.init(8);
+  ledDisplay.blank();
+  ledDisplay.sprite(g_x, g_y, (const char *)g_sprite, 6, GRAPHIC_DRAW_SRC);
+
+  ledDisplay.update();
+}
+
+void loop()
+{
+  if (g_ctCode == MAX_IR_REPEAT)
+  {
+  	//Serial.print("Code = ");
+  	//Serial.println(g_irCode, HEX);
+  	ledDisplay.sprite(g_x, g_y, (const char *)g_sprite, 6, GRAPHIC_DRAW_XOR);
+
+  	switch(g_irCode)
+  	{
+  	case IR_CODE_LEFT:
+  	case IR_CODE_LEFTARROW:
+  		if (g_x)
+  		{
+  			g_x--;
+  		}
+  		break;
+  	case IR_CODE_RIGHT:
+  	case IR_CODE_RIGHTARROW:
+  		if (g_x < ledDisplay.getWidth()-3)
+  		{
+  			g_x++;
+  		}
+  		break;
+  	case IR_CODE_UP:
+  	case IR_CODE_UPARROW:
+  		if (g_y)
+  		{
+  			g_y--;
+  		}
+  		break;
+  	case IR_CODE_DOWN:
+  	case IR_CODE_DOWNARROW:
+  		if (g_y < ledDisplay.getHeight()-4)
+  		{
+  			g_y++;
+  		}
+  		break;
+  	case IR_CODE_UPLEFT:
+  		if (g_y)
+  		{
+  			g_y--;
+  		}
+  		if (g_x)
+  		{
+  			g_x--;
+  		}
+  		break;
+  	case IR_CODE_UPRIGHT:
+  		if (g_y)
+  		{
+  			g_y--;
+  		}
+  		if (g_x < ledDisplay.getWidth()-3)
+  		{
+  			g_x++;
+  		}
+  		break;
+  	case IR_CODE_DOWNLEFT:
+  		if (g_y < ledDisplay.getHeight()-4)
+  		{
+  			g_y++;
+  		}
+  		if (g_x)
+  		{
+  			g_x--;
+  		}
+  		break;
+  	case IR_CODE_DOWNRIGHT:
+  		if (g_y < ledDisplay.getHeight()-4)
+  		{
+  			g_y++;
+  		}
+  		if (g_x < ledDisplay.getWidth()-3)
+  		{
+  			g_x++;
+  		}
+  		break;
+  	}
+
+  	Serial.println(g_x, DEC);
+
+  	ledDisplay.sprite(g_x, g_y, (const char *)g_sprite, 6, GRAPHIC_DRAW_SRC);
+  	ledDisplay.update();
+  	g_irCode = 0;
+  	g_ctCode = 0;
+  }
+}
